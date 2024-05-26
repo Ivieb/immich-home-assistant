@@ -179,6 +179,25 @@ class ImmichHub:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception
 
+    async def get_random_image(self) -> str:
+        """Get random image."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = urljoin(self.host, f"/api/asset/random")
+                headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
+
+                async with session.get(url=url, headers=headers) as response:
+                    if response.status != 200:
+                        raw_result = await response.text()
+                        _LOGGER.error("Error from API: body=%s", raw_result)
+                        raise ApiError()
+
+                    asset_info: list[dict] = await response.json()
+
+                    return asset_info[0].get('id')
+        except aiohttp.ClientError as exception:
+            _LOGGER.error("Error connecting to the API: %s", exception)
+            raise CannotConnect from exception
 
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
