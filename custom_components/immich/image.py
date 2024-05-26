@@ -11,8 +11,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 
-from .const import CONF_WATCHED_ALBUMS
+from .const import CONF_WATCHED_ALBUMS, DOMAIN, MANUFACTURER
 from .hub import ImmichHub
 
 SCAN_INTERVAL = timedelta(minutes=5)
@@ -76,6 +77,20 @@ class BaseImmichImage(ImageEntity):
         self.hass = hass
 
         self._attr_extra_state_attributes = {}
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the device info."""
+        return DeviceInfo(
+            identifiers={
+                (
+                    DOMAIN, 
+                    self._attr_unique_id,
+                )
+            },
+            name=self._attr_name,
+            manufacturer=MANUFACTURER,
+        )
 
     async def async_update(self) -> None:
         """Force a refresh of the image."""
