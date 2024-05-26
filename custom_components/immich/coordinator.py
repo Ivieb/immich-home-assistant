@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.helpers.entity import DeviceInfo
 
 
-from .const import ALBUM_REFRESH_INTERVAL, DOMAIN, FAVORITE_IMAGE, MANUFACTURER, SETTING_INTERVAL_DEFAULT_OPTION, SETTING_INTERVAL_MAP
+from .const import ALBUM_REFRESH_INTERVAL, DOMAIN, FAVORITE_IMAGE_ALBUM, MANUFACTURER, SETTING_INTERVAL_DEFAULT_OPTION, SETTING_INTERVAL_MAP
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +51,11 @@ class ImmichCoordinator(DataUpdateCoordinator):
             self.albums.update({album['id']: album})
         self.album_last_update = datetime.now();
 
+    async def remove_album(self, album_id):
+        if album_id in self.image_entities:
+            self.image_entities.pop(album_id)
+        if album_id in self.intervals:
+            self.intervals.pop(album_id)
 
     def get_interval(self, album_id):
         return self.intervals.get(album_id, SETTING_INTERVAL_DEFAULT_OPTION)

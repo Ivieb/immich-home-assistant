@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN
+from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME
 from .hub import CannotConnect, ImmichHub, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
@@ -113,6 +113,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Get the list of albums and create a mapping of album id to album name
         albums = await hub.list_all_albums()
         album_map = {album["id"]: album["albumName"] for album in albums}
+        album_map.update({FAVORITE_IMAGE_ALBUM: FAVORITE_IMAGE_ALBUM_NAME})
 
         # Filter out any album ids that are no longer returned by the API
         current_albums_value = [

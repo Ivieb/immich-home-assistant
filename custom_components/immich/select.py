@@ -14,11 +14,11 @@ from homeassistant.helpers.entity import DeviceInfo
 from .const import (
     CONF_WATCHED_ALBUMS,
     DOMAIN,
-    FAVORITE_IMAGE,
+    FAVORITE_IMAGE_ALBUM,
     MANUFACTURER,
     SETTING_INTERVAL_DEFAULT_OPTION,
     SETTING_INTERVAL_OPTIONS,
-    FAVORITE_IMAGE_NAME,
+    FAVORITE_IMAGE_ALBUM_NAME,
 )
 
 async def async_setup_entry(
@@ -28,10 +28,12 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     await coordinator.update_albums()
 
-    async_add_entities([ImmichSelectInterval(coordinator, album_id=FAVORITE_IMAGE, album_name=FAVORITE_IMAGE_NAME)])
+    watched_albums = config_entry.options.get(CONF_WATCHED_ALBUMS, [])
+
+    if FAVORITE_IMAGE_ALBUM in watched_albums:
+        async_add_entities([ImmichSelectInterval(coordinator, album_id=FAVORITE_IMAGE_ALBUM, album_name=FAVORITE_IMAGE_ALBUM_NAME)])
     
     # Create entities for random image from each watched album
-    watched_albums = config_entry.options.get(CONF_WATCHED_ALBUMS, [])
     for album in coordinator.albums.values():
         if album["id"] in watched_albums:
             async_add_entities([ImmichSelectInterval(coordinator, album_id=album["id"], album_name=album["albumName"])])

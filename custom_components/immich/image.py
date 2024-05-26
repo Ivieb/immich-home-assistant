@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE, FAVORITE_IMAGE_NAME
+from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME
 from .hub import ImmichHub
 
 
@@ -37,13 +37,15 @@ async def async_setup_entry(
 
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     await coordinator.update_albums()
+
+    watched_albums = config_entry.options.get(CONF_WATCHED_ALBUMS, [])
     # Create entity for random favorite image
-    favorite = ImmichImageFavorite(hass, coordinator)
-    async_add_entities([favorite])
-    coordinator.image_entities.update({FAVORITE_IMAGE: {'name': FAVORITE_IMAGE_NAME, 'entity': favorite}})
+    if FAVORITE_IMAGE_ALBUM in watched_albums:
+        favorite = ImmichImageFavorite(hass, coordinator)
+        async_add_entities([favorite])
+        coordinator.image_entities.update({FAVORITE_IMAGE_ALBUM: {'name': FAVORITE_IMAGE_ALBUM_NAME, 'entity': favorite}})
 
     # Create entities for random image from each watched album
-    watched_albums = config_entry.options.get(CONF_WATCHED_ALBUMS, [])
     for album in coordinator.albums.values():
         if album["id"] in watched_albums:
             entity = ImmichImageAlbum(
@@ -149,8 +151,8 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
 class ImmichImageFavorite(BaseImmichImage):
     """Image entity for Immich that displays a random image from the user's favorites."""
 
-    _attr_unique_id = FAVORITE_IMAGE
-    _attr_name = f"Immich: {FAVORITE_IMAGE_NAME}"
+    _attr_unique_id = FAVORITE_IMAGE_ALBUM
+    _attr_name = f"Immich: {FAVORITE_IMAGE_ALBUM_NAME}"
 
     def __init__(
         self, hass: HomeAssistant, coordinator: ImmichCoordinator) -> None:

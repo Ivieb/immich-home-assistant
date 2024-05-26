@@ -3,8 +3,9 @@
 DOMAIN = "immich"
 MANUFACTURER = "Immich"
 CONF_WATCHED_ALBUMS = "watched_albums"
-FAVORITE_IMAGE = "favorite_image"
-FAVORITE_IMAGE_NAME = "Random favorite image"
+CONF_FAVORITES = "favorite_album"
+FAVORITE_IMAGE_ALBUM = "favorite_image"
+FAVORITE_IMAGE_ALBUM_NAME = "Random favorite image"
 
 ALBUM_REFRESH_INTERVAL = 720
 
