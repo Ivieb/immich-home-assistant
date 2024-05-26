@@ -6,17 +6,21 @@ from datetime import datetime, timedelta
 import logging
 import random
 
+from .coordinator import ImmichCoordinator
 from homeassistant.components.image import ImageEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_HOST
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN, MANUFACTURER
+from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE, FAVORITE_IMAGE_NAME
 from .hub import ImmichHub
 
-SCAN_INTERVAL = timedelta(minutes=5)
 
 # How often to refresh the list of available asset IDs
 _ID_LIST_REFRESH_INTERVAL = timedelta(hours=12)
@@ -31,24 +35,22 @@ async def async_setup_entry(
 ) -> None:
     """Set up Immich image platform."""
 
-    hub = ImmichHub(
-        host=config_entry.data[CONF_HOST], api_key=config_entry.data[CONF_API_KEY]
-    )
-
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    await coordinator.update_albums()
     # Create entity for random favorite image
-    async_add_entities([ImmichImageFavorite(hass, hub)])
+    favorite = ImmichImageFavorite(hass, coordinator)
+    async_add_entities([favorite])
+    coordinator.image_entities.update({FAVORITE_IMAGE: {'name': FAVORITE_IMAGE_NAME, 'entity': favorite}})
 
     # Create entities for random image from each watched album
     watched_albums = config_entry.options.get(CONF_WATCHED_ALBUMS, [])
-    async_add_entities(
-        [
-            ImmichImageAlbum(
-                hass, hub, album_id=album["id"], album_name=album["albumName"]
-            )
-            for album in await hub.list_all_albums()
-            if album["id"] in watched_albums
-        ]
-    )
+    for album in coordinator.albums.values():
+        if album["id"] in watched_albums:
+            entity = ImmichImageAlbum(
+                        hass, coordinator, album_id=album["id"], album_name=album["albumName"]
+                    )
+            async_add_entities([entity])
+            coordinator.image_entities.update({album["id"]: {'name': album["albumName"], 'entity': entity}})
 
     config_entry.async_on_unload(config_entry.add_update_listener(update_listener))
 
@@ -58,7 +60,7 @@ async def update_listener(hass: HomeAssistant, config_entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(config_entry.entry_id)
 
 
-class BaseImmichImage(ImageEntity):
+class BaseImmichImage(ImageEntity, CoordinatorEntity):
     """Base image entity for Immich. Subclasses will define where the random image comes from (e.g. favorite images, by album ID,..)."""
 
     _attr_has_entity_name = True
@@ -69,28 +71,16 @@ class BaseImmichImage(ImageEntity):
     _current_image_bytes: bytes | None = None
     _cached_available_asset_ids: list[str] | None = None
     _available_asset_ids_last_updated: datetime | None = None
+    last_updated: datetime
 
-    def __init__(self, hass: HomeAssistant, hub: ImmichHub) -> None:
+    def __init__(self, hass: HomeAssistant, coordinator: ImmichCoordinator) -> None:
         """Initialize the Immich image entity."""
         super().__init__(hass=hass, verify_ssl=True)
-        self.hub = hub
         self.hass = hass
-
+        self.coordinator = coordinator
+        self.coordinator_context = object
         self._attr_extra_state_attributes = {}
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return the device info."""
-        return DeviceInfo(
-            identifiers={
-                (
-                    DOMAIN, 
-                    self._attr_unique_id,
-                )
-            },
-            name=self._attr_name,
-            manufacturer=MANUFACTURER,
-        )
+        self.last_updated = datetime.now()
 
     async def async_update(self) -> None:
         """Force a refresh of the image."""
@@ -139,13 +129,13 @@ class BaseImmichImage(ImageEntity):
             if not asset_id:
                 return
 
-            asset_bytes = await self.hub.download_asset(asset_id)
+            asset_bytes = await self.coordinator.hub.download_asset(asset_id)
 
             if not asset_bytes:
                 await asyncio.sleep(1)
                 continue
 
-            asset_info = await self.hub.get_asset_info(asset_id)
+            asset_info = await self.coordinator.hub.get_asset_info(asset_id)
             
             self._attr_extra_state_attributes["media_filename"] = (asset_info.get('originalFileName') or '')
             self._attr_extra_state_attributes["media_exifInfo"] = (asset_info.get('exifInfo') or '')
@@ -153,34 +143,40 @@ class BaseImmichImage(ImageEntity):
 
             self._current_image_bytes = asset_bytes
             self._attr_image_last_updated = datetime.now()
+            self.last_updated = datetime.now()
             self.async_write_ha_state()
-
 
 class ImmichImageFavorite(BaseImmichImage):
     """Image entity for Immich that displays a random image from the user's favorites."""
 
-    _attr_unique_id = "favorite_image"
-    _attr_name = "Immich: Random favorite image"
+    _attr_unique_id = FAVORITE_IMAGE
+    _attr_name = f"Immich: {FAVORITE_IMAGE_NAME}"
+
+    def __init__(
+        self, hass: HomeAssistant, coordinator: ImmichCoordinator) -> None:
+        super().__init__(hass, coordinator)
+        self._attr_device_info = coordinator.get_device_info(self._attr_unique_id, self._attr_name)
 
     async def _refresh_available_asset_ids(self) -> list[str] | None:
         """Refresh the list of available asset IDs."""
-        return [image["id"] for image in await self.hub.list_favorite_images()]
+        return [image["id"] for image in await self.coordinator.hub.list_favorite_images()]
 
 
 class ImmichImageAlbum(BaseImmichImage):
     """Image entity for Immich that displays a random image from a specific album."""
 
     def __init__(
-        self, hass: HomeAssistant, hub: ImmichHub, album_id: str, album_name: str
+        self, hass: HomeAssistant, coordinator: ImmichCoordinator, album_id: str, album_name: str
     ) -> None:
         """Initialize the Immich image entity."""
-        super().__init__(hass, hub)
+        super().__init__(hass, coordinator)
         self._album_id = album_id
         self._attr_unique_id = album_id
         self._attr_name = f"Immich: {album_name}"
+        self._attr_device_info = coordinator.get_device_info(album_id, self._attr_name)
 
     async def _refresh_available_asset_ids(self) -> list[str] | None:
         """Refresh the list of available asset IDs."""
         return [
-            image["id"] for image in await self.hub.list_album_images(self._album_id)
+            image["id"] for image in await self.coordinator.hub.list_album_images(self._album_id)
         ]

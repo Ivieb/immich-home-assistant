@@ -7,8 +7,9 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .hub import ImmichHub, InvalidAuth
+from .coordinator import ImmichCoordinator
 
-PLATFORMS: list[Platform] = [Platform.IMAGE]
+PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SELECT]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -17,11 +18,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     hub = ImmichHub(host=entry.data[CONF_HOST], api_key=entry.data[CONF_API_KEY])
+    coordinator = ImmichCoordinator(hass, hub)
 
     if not await hub.authenticate():
         raise InvalidAuth
 
-    hass.data[DOMAIN][entry.entry_id] = hub
+    hass.data[DOMAIN][entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
