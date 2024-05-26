@@ -47,7 +47,7 @@ async def async_remove_config_entry_device(
         return False
     album_id = identifier[len(identifier) - 1]
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    coordinator.remove_album(album_id)
+    await coordinator.remove_album(album_id)
     
     options = config_entry.options.copy()
     albums = options.get(CONF_WATCHED_ALBUMS, []).copy()

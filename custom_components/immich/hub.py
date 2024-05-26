@@ -109,6 +109,29 @@ class ImmichHub:
         except aiohttp.ClientError as exception:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception
+        
+    async def download_thumbnail(self, asset_id: str) -> bytes | None:
+        """Download the thumbnail."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = urljoin(self.host, f"/api/asset/thumbnail/{asset_id}?format=JPEG")
+                headers = {_HEADER_API_KEY: self.api_key}
+
+                async with session.get(url=url, headers=headers) as response:
+                    if response.status != 200:
+                        _LOGGER.error("Error from API: status=%d", response.status)
+                        return None
+
+                    if response.content_type not in _ALLOWED_MIME_TYPES:
+                        _LOGGER.error(
+                            "MIME type is not supported: %s", response.content_type
+                        )
+                        return None
+
+                    return await response.read()
+        except aiohttp.ClientError as exception:
+            _LOGGER.error("Error connecting to the API: %s", exception)
+            raise CannotConnect from exception        
 
     async def list_favorite_images(self) -> list[dict]:
         """List all favorite images."""

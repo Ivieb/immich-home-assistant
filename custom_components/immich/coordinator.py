@@ -16,7 +16,7 @@ from homeassistant.helpers.update_coordinator import (
 from homeassistant.helpers.entity import DeviceInfo
 
 
-from .const import ALBUM_REFRESH_INTERVAL, DOMAIN, FAVORITE_IMAGE_ALBUM, MANUFACTURER, SETTING_INTERVAL_DEFAULT_OPTION, SETTING_INTERVAL_MAP
+from .const import ALBUM_REFRESH_INTERVAL, DOMAIN, FAVORITE_IMAGE_ALBUM, MANUFACTURER, SETTING_INTERVAL_DEFAULT_OPTION, SETTING_INTERVAL_MAP, SETTING_THUMBNAILS_MODE_DEFAULT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class ImmichCoordinator(DataUpdateCoordinator):
         self.image_entities = dict()
         self.albums = dict()
         self.intervals = dict()
+        self.thumbnail_mode = dict()
 
     async def update_albums(self):
         if self.albums:
@@ -56,6 +57,8 @@ class ImmichCoordinator(DataUpdateCoordinator):
             self.image_entities.pop(album_id)
         if album_id in self.intervals:
             self.intervals.pop(album_id)
+        if album_id in self.thumbnail_mode:
+            self.thumbnail_mode.pop(album_id)
 
     def get_interval(self, album_id):
         return self.intervals.get(album_id, SETTING_INTERVAL_DEFAULT_OPTION)
@@ -63,6 +66,12 @@ class ImmichCoordinator(DataUpdateCoordinator):
     def set_interval(self, album_id, interval):
         self.intervals.update({album_id: interval})
         
+    def get_thumbnail_mode(self, album_id):
+        return self.thumbnail_mode.get(album_id, SETTING_THUMBNAILS_MODE_DEFAULT)
+    
+    def set_thumbnail_mode(self, album_id, mode):
+        self.thumbnail_mode.update({album_id: mode})
+
     def get_device_info(self, unique_id, name) -> DeviceInfo:
         return DeviceInfo(
             identifiers={
@@ -83,5 +92,7 @@ class ImmichCoordinator(DataUpdateCoordinator):
             image_entity = self.image_entities.get(album_id).get('entity')
             time_delta = (datetime.now() - image_entity.last_updated).total_seconds()
             interval = SETTING_INTERVAL_MAP.get(self.get_interval(album_id))
+            if interval is None:
+                continue
             if time_delta > interval:
-                await image_entity.async_update()
+                await image_entity.async_update(self.thumbnail_mode.get(album_id))

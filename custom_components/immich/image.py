@@ -18,7 +18,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME
+from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME, SETTING_THUMBNAILS_MODE_ORIGINAL, SETTING_THUMBNAILS_MODE_THUMBNAIL, SETTING_THUMBNAILS_MODE_THUMBNAIL_BACKUP
 from .hub import ImmichHub
 
 
@@ -84,14 +84,14 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
         self._attr_extra_state_attributes = {}
         self.last_updated = datetime.now()
 
-    async def async_update(self) -> None:
+    async def async_update(self, thumbnail_mode) -> None:
         """Force a refresh of the image."""
-        await self._load_and_cache_next_image()
+        await self._load_and_cache_next_image(thumbnail_mode)
 
     async def async_image(self) -> bytes | None:
         """Return the current image. If no image is available, load and cache the image."""
         if not self._current_image_bytes:
-            await self._load_and_cache_next_image()
+            await self._load_and_cache_next_image(self.coordinator.get_thumbnail_mode(self._album_id))
 
         return self._current_image_bytes
 
@@ -121,7 +121,7 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
 
         return random_asset
 
-    async def _load_and_cache_next_image(self) -> None:
+    async def _load_and_cache_next_image(self, thumbnail_mode) -> None:
         """Download and cache the image."""
         asset_bytes = None
 
@@ -131,7 +131,11 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
             if not asset_id:
                 return
 
-            asset_bytes = await self.coordinator.hub.download_asset(asset_id)
+            if thumbnail_mode == SETTING_THUMBNAILS_MODE_ORIGINAL:
+                asset_bytes = await self.coordinator.hub.download_asset(asset_id)
+            
+            if thumbnail_mode == SETTING_THUMBNAILS_MODE_THUMBNAIL or (thumbnail_mode == SETTING_THUMBNAILS_MODE_THUMBNAIL_BACKUP and not asset_bytes):
+                asset_bytes = await self.coordinator.hub.download_thumbnail(asset_id)
 
             if not asset_bytes:
                 await asyncio.sleep(1)
@@ -153,6 +157,7 @@ class ImmichImageFavorite(BaseImmichImage):
 
     _attr_unique_id = FAVORITE_IMAGE_ALBUM
     _attr_name = f"Immich: {FAVORITE_IMAGE_ALBUM_NAME}"
+    _album_id = FAVORITE_IMAGE_ALBUM
 
     def __init__(
         self, hass: HomeAssistant, coordinator: ImmichCoordinator) -> None:
