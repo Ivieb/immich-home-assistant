@@ -168,6 +168,23 @@ class ImmichImageFavorite(BaseImmichImage):
         """Refresh the list of available asset IDs."""
         return [image["id"] for image in await self.coordinator.hub.list_favorite_images()]
 
+class ImmichImageRandom(BaseImmichImage):
+    """Image entity for Immich that displays a random image from the user's favorites."""
+
+    _attr_unique_id = "random_image"
+    _attr_name = "Immich: Random image"
+
+    async def _get_next_asset_id(self) -> str | None:
+        """Get the asset id of the next image we want to display."""
+
+        random_asset = await self.hub.get_random_image()
+
+        if not random_asset:
+            # If we still don't have any available asset IDs, that's a problem
+            _LOGGER.error("No assets are available")
+            return None
+
+        return random_asset
 
 class ImmichImageAlbum(BaseImmichImage):
     """Image entity for Immich that displays a random image from a specific album."""
