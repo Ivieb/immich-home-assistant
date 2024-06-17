@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 import logging
 import random
+from typing import Tuple
 
 from .coordinator import ImmichCoordinator
 from homeassistant.components.image import ImageEntity
@@ -18,7 +19,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME, SETTING_THUMBNAILS_MODE_ORIGINAL, SETTING_THUMBNAILS_MODE_THUMBNAIL, SETTING_THUMBNAILS_MODE_THUMBNAIL_BACKUP
+from .const import CONF_WATCHED_ALBUMS, CONF_WATCHED_PERSONS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME, RANDOM_IMAGE_ALBUM, RANDOM_IMAGE_ALBUM_NAME, SETTING_ORIENTATION_LANDSCAPE, SETTING_ORIENTATION_PORTRAIT, SETTING_THUMBNAILS_MODE_ORIGINAL, SETTING_THUMBNAILS_MODE_THUMBNAIL, SETTING_THUMBNAILS_MODE_THUMBNAIL_BACKUP
 from .hub import ImmichHub
 
 
@@ -71,7 +72,7 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
     _attr_should_poll = True
 
     _current_image_bytes: bytes | None = None
-    _cached_available_asset_ids: list[str] | None = None
+    _cached_available_asset_infos: list[dict()] | None = None
     _available_asset_ids_last_updated: datetime | None = None
     last_updated: datetime
 
@@ -84,20 +85,24 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
         self._attr_extra_state_attributes = {}
         self.last_updated = datetime.now()
 
-    async def async_update(self, thumbnail_mode) -> None:
+    async def async_update(self, thumbnail_mode, orientation) -> None:
         """Force a refresh of the image."""
-        await self._load_and_cache_next_image(thumbnail_mode)
+        await self._load_and_cache_next_image(thumbnail_mode, orientation)
 
     async def async_image(self) -> bytes | None:
         """Return the current image. If no image is available, load and cache the image."""
         if not self._current_image_bytes:
-            await self._load_and_cache_next_image(self.coordinator.get_thumbnail_mode(self._album_id))
+            await self._load_and_cache_next_image(self.coordinator.get_thumbnail_mode(self._album_id), self.coordinator.get_orientation(self._album_id))
 
         return self._current_image_bytes
 
-    async def _refresh_available_asset_ids(self) -> list[str] | None:
+    async def _refresh_available_asset_infos(self) -> list[str] | None:
         """Refresh the list of available asset IDs."""
         raise NotImplementedError
+
+    def _is_portrait(self, dimensions: Tuple[float, float]) -> bool:
+        """Returns if the given dimension represent a portrait media item"""
+        return dimensions[0] < dimensions[1]
 
     async def _get_next_asset_id(self) -> str | None:
         """Get the asset id of the next image we want to display."""
@@ -108,28 +113,38 @@ class BaseImmichImage(ImageEntity, CoordinatorEntity):
         ):
             # If we don't have any available asset IDs yet, or the list is stale, refresh it
             _LOGGER.debug("Refreshing available asset IDs")
-            self._cached_available_asset_ids = await self._refresh_available_asset_ids()
+            self._cached_available_asset_infos = await self._refresh_available_asset_infos()
             self._available_asset_ids_last_updated = datetime.now()
 
-        if not self._cached_available_asset_ids:
+        if not self._cached_available_asset_infos:
             # If we still don't have any available asset IDs, that's a problem
             _LOGGER.error("No assets are available")
             return None
 
         # Select random item in list
-        random_asset = random.choice(self._cached_available_asset_ids)
+        random_asset = random.choice(self._cached_available_asset_infos)
 
         return random_asset
 
-    async def _load_and_cache_next_image(self, thumbnail_mode) -> None:
+    async def _load_and_cache_next_image(self, thumbnail_mode, orientation) -> None:
         """Download and cache the image."""
         asset_bytes = None
 
         while not asset_bytes:
-            asset_id = await self._get_next_asset_id()
+            next_asset = await self._get_next_asset_id()
+            asset_id = next_asset.get("id")
 
             if not asset_id:
                 return
+
+            if orientation == SETTING_ORIENTATION_PORTRAIT or orientation == SETTING_ORIENTATION_LANDSCAPE:
+                width = next_asset.get("width")
+                height = next_asset.get("height")
+                if not width or not height:
+                    continue
+                portrait = self._is_portrait((float(width), float(height)))
+                if (not portrait and orientation == SETTING_ORIENTATION_PORTRAIT) or (portrait and orientation == SETTING_ORIENTATION_LANDSCAPE):
+                    continue
 
             if thumbnail_mode == SETTING_THUMBNAILS_MODE_ORIGINAL:
                 asset_bytes = await self.coordinator.hub.download_asset(asset_id)
@@ -164,9 +179,12 @@ class ImmichImageFavorite(BaseImmichImage):
         super().__init__(hass, coordinator)
         self._attr_device_info = coordinator.get_device_info(self._attr_unique_id, self._attr_name)
 
-    async def _refresh_available_asset_ids(self) -> list[str] | None:
+    async def _refresh_available_asset_infos(self) -> list[str] | None:
         """Refresh the list of available asset IDs."""
-        return [image["id"] for image in await self.coordinator.hub.list_favorite_images()]
+        asset_infos = []
+        for image in await self.coordinator.hub.list_favorite_images():
+            asset_infos.append({"id": image["id"], "width": image.get("exifInfo").get("exifImageWidth"), "height": image.get("exifInfo").get("exifImageHeight")})
+        return asset_infos
 
 class ImmichImageRandom(BaseImmichImage):
     """Image entity for Immich that displays a random image from the user's favorites."""
@@ -177,7 +195,7 @@ class ImmichImageRandom(BaseImmichImage):
     async def _get_next_asset_id(self) -> str | None:
         """Get the asset id of the next image we want to display."""
 
-        random_asset = await self.hub.get_random_image()
+        random_asset = await self.coordinator.hub.get_random_image()
 
         if not random_asset:
             # If we still don't have any available asset IDs, that's a problem
@@ -198,6 +216,13 @@ class ImmichImageAlbum(BaseImmichImage):
         self._attr_unique_id = album_id
         self._attr_name = f"Immich: {album_name}"
         self._attr_device_info = coordinator.get_device_info(album_id, self._attr_name)
+
+    async def _refresh_available_asset_infos(self) -> list[str] | None:
+        """Refresh the list of available asset IDs."""
+        asset_infos = []
+        for image in await self.coordinator.hub.list_album_images(self._album_id):
+            asset_infos.append({"id": image["id"], "width": image.get("exifInfo").get("exifImageWidth"), "height": image.get("exifInfo").get("exifImageHeight")})
+        return asset_infos
 
     async def _refresh_available_asset_ids(self) -> list[str] | None:
         """Refresh the list of available asset IDs."""

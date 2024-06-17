@@ -40,6 +40,7 @@ class ImmichCoordinator(DataUpdateCoordinator):
         self.albums = dict()
         self.intervals = dict()
         self.thumbnail_mode = dict()
+        self.orientation = dict()
 
     async def update_albums(self):
         if self.albums:
@@ -71,6 +72,12 @@ class ImmichCoordinator(DataUpdateCoordinator):
     
     def set_thumbnail_mode(self, album_id, mode):
         self.thumbnail_mode.update({album_id: mode})
+                
+    def get_orientation(self, album_id):
+        return self.orientation.get(album_id, SETTING_ORIENTATION_DEFAULT)
+    
+    def set_orientation(self, album_id, orientation):
+        self.orientation.update({album_id: orientation})
 
     def get_device_info(self, unique_id, name) -> DeviceInfo:
         return DeviceInfo(
@@ -95,4 +102,4 @@ class ImmichCoordinator(DataUpdateCoordinator):
             if interval is None:
                 continue
             if time_delta > interval:
-                await image_entity.async_update(self.thumbnail_mode.get(album_id))
+                await image_entity.async_update(self.thumbnail_mode.get(album_id), self.orientation.get(album_id))
