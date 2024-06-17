@@ -189,8 +189,15 @@ class ImmichImageFavorite(BaseImmichImage):
 class ImmichImageRandom(BaseImmichImage):
     """Image entity for Immich that displays a random image from the user's favorites."""
 
-    _attr_unique_id = "random_image"
-    _attr_name = "Immich: Random image"
+    _attr_unique_id = RANDOM_IMAGE_ALBUM
+    _attr_name = f"Immich: {RANDOM_IMAGE_ALBUM_NAME}"
+    _album_id = RANDOM_IMAGE_ALBUM
+    coordinator: ImmichCoordinator
+
+    def __init__(
+        self, hass: HomeAssistant, coordinator: ImmichCoordinator) -> None:
+        super().__init__(hass, coordinator)
+        self._attr_device_info = coordinator.get_device_info(self._attr_unique_id, self._attr_name)    
 
     async def _get_next_asset_id(self) -> str | None:
         """Get the asset id of the next image we want to display."""
