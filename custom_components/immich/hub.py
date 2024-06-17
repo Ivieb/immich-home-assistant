@@ -51,7 +51,7 @@ class ImmichHub:
         """Get user info."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, "/api/user/me")
+                url = urljoin(self.host, "/api/users/me")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -71,7 +71,7 @@ class ImmichHub:
         """Get asset info."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/asset/{asset_id}")
+                url = urljoin(self.host, f"/api/assets/{asset_id}")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -91,7 +91,7 @@ class ImmichHub:
         """Download the asset."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/asset/file/{asset_id}")
+                url = urljoin(self.host, f"/api/assets/{asset_id}/original")
                 headers = {_HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -114,7 +114,7 @@ class ImmichHub:
         """Download the thumbnail."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/asset/thumbnail/{asset_id}?format=JPEG")
+                url = urljoin(self.host, f"/api/assets/thumbnail/{asset_id}?format=JPEG")
                 headers = {_HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -133,11 +133,11 @@ class ImmichHub:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception        
 
-    async def list_favorite_images(self) -> list[dict]:
-        """List all favorite images."""
+    async def list_named_people(self) -> list[dict]:
+        """List all named people."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, "/api/asset?isFavorite=true")
+                url = urljoin(self.host, "/api/people")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -146,7 +146,74 @@ class ImmichHub:
                         _LOGGER.error("Error from API: body=%s", raw_result)
                         raise ApiError()
 
-                    assets: list[dict] = await response.json()
+                    data = await response.json()
+                    persons: list[dict] = data.get('people')
+
+                    filtered_persons: list[dict] = [
+                        person for person in persons if person["name"] != ""
+                    ]
+
+                    return filtered_persons
+        except aiohttp.ClientError as exception:
+            _LOGGER.error("Error connecting to the API: %s", exception)
+            raise CannotConnect from exception
+
+    async def download_personthumbnail(self, person_id: str) -> bytes | None:
+        """Download the person thumbnail."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = urljoin(self.host, f"/api/people/{person_id}/thumbnail")
+                headers = {_HEADER_API_KEY: self.api_key}
+
+                async with session.get(url=url, headers=headers) as response:
+                    if response.status != 200:
+                        _LOGGER.error("Error from API: status=%d", response.status)
+                        return None
+                    return await response.read()
+        except aiohttp.ClientError as exception:
+            _LOGGER.error("Error connecting to the API: %s", exception)
+            raise CannotConnect from exception 
+
+    async def list_person_images(self, person_id: str) -> list[dict]:
+        """List all images for a person."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = urljoin(self.host, f"/api/people/{person_id}/assets")
+                headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
+
+                async with session.get(url=url, headers=headers) as response:
+                    if response.status != 200:
+                        raw_result = await response.text()
+                        _LOGGER.error("Error from API: body=%s", raw_result)
+                        raise ApiError()
+
+                    assets: dict = await response.json()
+
+                    filtered_assets: list[dict] = [
+                        asset for asset in assets if asset["type"] == "IMAGE"
+                    ]
+
+                    return filtered_assets
+        except aiohttp.ClientError as exception:
+            _LOGGER.error("Error connecting to the API: %s", exception)
+            raise CannotConnect from exception
+
+    async def list_favorite_images(self) -> list[dict]:
+        """List all favorite images."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = urljoin(self.host, "/api/search/metadata")
+                headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
+                data = {"isFavorite": "true"}
+
+                async with session.post(url=url, headers=headers, data=data) as response:
+                    if response.status != 200:
+                        raw_result = await response.text()
+                        _LOGGER.error("Error from API: body=%s", raw_result)
+                        raise ApiError()
+
+                    favorites = await response.json()
+                    assets: list[dict] = favorites["assets"]["items"]
 
                     filtered_assets: list[dict] = [
                         asset for asset in assets if asset["type"] == "IMAGE"
@@ -161,7 +228,7 @@ class ImmichHub:
         """List all albums."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, "/api/album")
+                url = urljoin(self.host, "/api/albums")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -181,7 +248,7 @@ class ImmichHub:
         """List all images in an album."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/album/{album_id}")
+                url = urljoin(self.host, f"/api/albums/{album_id}")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
@@ -206,7 +273,7 @@ class ImmichHub:
         """Get random image."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/asset/random")
+                url = urljoin(self.host, f"/api/assets/random")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
