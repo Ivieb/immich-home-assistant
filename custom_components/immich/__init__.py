@@ -6,7 +6,7 @@ from homeassistant.const import CONF_API_KEY, CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntry
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN
+from .const import CONF_WATCHED, DOMAIN
 from .hub import ImmichHub, InvalidAuth
 from .coordinator import ImmichCoordinator
 
@@ -45,14 +45,19 @@ async def async_remove_config_entry_device(
     identifier = next((id for id in device_entry.identifiers if id[0] == DOMAIN), None)
     if identifier is None:
         return False
-    album_id = identifier[len(identifier) - 1]
+    
+    id = identifier[1]
+    type = identifier[2]
+    created = identifier[3]
+
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
-    await coordinator.remove_album(album_id)
+    await coordinator.remove_device(id, created)
     
     options = config_entry.options.copy()
-    albums = options.get(CONF_WATCHED_ALBUMS, []).copy()
-    if album_id in albums:
-        albums.remove(album_id)
-        options.update({CONF_WATCHED_ALBUMS: albums})
-        hass.config_entries.async_update_entry(config_entry, options=options)
+    entries = options.get(CONF_WATCHED, []).copy()
+    for entry in list(entries):
+        if entry.get('id') == id and entry.get('type') == type and entry.get('created') == created:
+            entries.remove(entry)
+    options.update({CONF_WATCHED: entries})
+    hass.config_entries.async_update_entry(config_entry, options=options)    
     return True

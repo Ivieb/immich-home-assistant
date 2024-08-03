@@ -5,11 +5,17 @@ MANUFACTURER = "Immich"
 CONF_WATCHED_ALBUMS = "watched_albums"
 CONF_FAVORITES = "favorite_album"
 CONF_WATCHED_PERSONS = "watched_persons"
+CONF_WATCHED = "watched_entries"
+CONF_WATCHED_TYPE_ALBUM = "Album"
+CONF_WATCHED_TYPE_PERSON = "Person"
+CONF_WATCHED_TYPE_RANDOM = "Random"
+CONF_WATCHED_TYPE_FAVORITE = "Favorite"
 
 FAVORITE_IMAGE_ALBUM = "favorite_image"
 FAVORITE_IMAGE_ALBUM_NAME = "Random favorite image"
 RANDOM_IMAGE_ALBUM = "random_image"
 RANDOM_IMAGE_ALBUM_NAME = "Random image"
+RANDOM_IMAGE_COUNT = 100
 
 ALBUM_REFRESH_INTERVAL = 720
 

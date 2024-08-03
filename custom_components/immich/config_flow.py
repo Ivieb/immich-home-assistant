@@ -1,7 +1,9 @@
 """Config flow for Immich integration."""
 from __future__ import annotations
 
+from datetime import datetime
 import logging
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -13,8 +15,9 @@ from homeassistant.const import CONF_API_KEY, CONF_HOST
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.selector import selector
 
-from .const import CONF_WATCHED_ALBUMS, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME
+from .const import CONF_WATCHED, CONF_WATCHED_ALBUMS, CONF_WATCHED_PERSONS, CONF_WATCHED_TYPE_ALBUM, CONF_WATCHED_TYPE_FAVORITE, CONF_WATCHED_TYPE_PERSON, CONF_WATCHED_TYPE_RANDOM, DOMAIN, FAVORITE_IMAGE_ALBUM, FAVORITE_IMAGE_ALBUM_NAME, RANDOM_IMAGE_ALBUM, RANDOM_IMAGE_ALBUM_NAME
 from .hub import CannotConnect, ImmichHub, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
@@ -95,12 +98,59 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self.config_entry = config_entry
 
-    async def async_step_init(
+    async def async_step_init(self, user_input=None):
+        """Handle options flow."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["albumselect", "personselect", "addrandom", "addfavorite"],
+            description_placeholders={
+                "model": "Example model",
+            },
+        )
+
+    async def async_step_addrandom(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage the options."""
+        """Add a random album."""
+        album_id = RANDOM_IMAGE_ALBUM
+        album_name = RANDOM_IMAGE_ALBUM_NAME
+        
+        entries = self.config_entry.options.get(CONF_WATCHED, []).copy()
+        entry = {'id': album_id, 'name': album_name, 'type': CONF_WATCHED_TYPE_RANDOM, 'created': datetime.now().timestamp()}
+        entries.append(entry)
+        data = self.config_entry.options.copy()
+        data.update({CONF_WATCHED: entries})
+        return self.async_create_entry(title="", data=data)
+    
+    async def async_step_addfavorite(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        album_id = FAVORITE_IMAGE_ALBUM
+        album_name = FAVORITE_IMAGE_ALBUM_NAME
+        
+        entries = self.config_entry.options.get(CONF_WATCHED, []).copy()
+        entry = {'id': album_id, 'name': album_name, 'type': CONF_WATCHED_TYPE_FAVORITE, 'created': datetime.now().timestamp()}
+        entries.append(entry)
+        data = self.config_entry.options.copy()
+        data.update({CONF_WATCHED: entries})
+        return self.async_create_entry(title="", data=data)
+
+    async def async_step_albumselect(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the album selection."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            album_str = user_input.get(CONF_WATCHED_ALBUMS)
+            album_id = re.findall(r'\(.*?\)', album_str)[-1]
+            album_name = album_str.replace(album_id, '')[:-1]
+            album_id = album_id[1:-1]
+            
+            entries = self.config_entry.options.get(CONF_WATCHED, []).copy()
+            entry = {'id': album_id, 'name': album_name, 'type': CONF_WATCHED_TYPE_ALBUM, 'created': datetime.now().timestamp()}
+            entries.append(entry)
+            data = self.config_entry.options.copy()
+            data.update({CONF_WATCHED: entries})
+            return self.async_create_entry(title="", data=data)                 
 
         # Get a connection to the hub in order to list the available albums
         url = url_normalize(self.config_entry.data[CONF_HOST])
@@ -112,25 +162,59 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         # Get the list of albums and create a mapping of album id to album name
         albums = await hub.list_all_albums()
-        album_map = {album["id"]: album["albumName"] for album in albums}
-        album_map.update({FAVORITE_IMAGE_ALBUM: FAVORITE_IMAGE_ALBUM_NAME})
-
-        # Filter out any album ids that are no longer returned by the API
-        current_albums_value = [
-            album
-            for album in self.config_entry.options.get(CONF_WATCHED_ALBUMS, [])
-            if album in album_map
-        ]
+        album_map = [f'{album["albumName"]} ({album["id"]})' for album in albums]
+        album_map.append(f'{FAVORITE_IMAGE_ALBUM} ({FAVORITE_IMAGE_ALBUM_NAME})')
+        album_map.append(f'{RANDOM_IMAGE_ALBUM} ({RANDOM_IMAGE_ALBUM_NAME})')
 
         # Allow the user to select which albums they want to create entities for
         return self.async_show_form(
-            step_id="init",
+            step_id="albumselect",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_WATCHED_ALBUMS,
-                        default=current_albums_value,
-                    ): cv.multi_select(album_map)
+                    ) :vol.In(album_map)
+                }
+            ),
+        )
+    
+    async def async_step_personselect(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage the person selection."""
+
+        if user_input is not None:
+            person_str = user_input.get(CONF_WATCHED_PERSONS)
+            person_id = re.findall(r'\(.*?\)', person_str)[-1]
+            person_name = person_str.replace(person_id, '')[:-1]
+            person_id = person_id[1:-1]
+            entries = self.config_entry.options.get(CONF_WATCHED, []).copy()
+            entry = {'id': person_id, 'name': person_name, 'type': CONF_WATCHED_TYPE_PERSON, 'created': datetime.now().timestamp()}
+            entries.append(entry)
+            data = self.config_entry.options.copy()
+            data.update({CONF_WATCHED: entries})
+            return self.async_create_entry(title="", data=data)     
+
+        # Get a connection to the hub in order to list the available albums
+        url = url_normalize(self.config_entry.data[CONF_HOST])
+        api_key = self.config_entry.data[CONF_API_KEY]
+        hub = ImmichHub(host=url, api_key=api_key)
+
+        if not await hub.authenticate():
+            raise InvalidAuth
+
+        # Get the list of persons and create a mapping of person id to person name
+        persons = await hub.list_named_people()
+        persons_map = [f"{person["name"]} ({person["id"]})" for person in persons]
+
+        # Allow the user to select which persons they want to create entities for
+        return self.async_show_form(
+            step_id="personselect",
+            data_schema=vol.Schema(
+                { vol.Required(
+                    CONF_WATCHED_PERSONS
+                )
+                    :vol.In(persons_map)
                 }
             ),
         )

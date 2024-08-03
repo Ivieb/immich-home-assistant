@@ -20,8 +20,22 @@
     "options": {
         "step": {
             "init": {
+                "title": "Add a new album device",
+                "menu_options": {
+                    "albumselect": "Select albums",
+                    "personselect": "Select person album",
+                    "addrandom": "Add Random album",
+                    "addfavorite": "Add Favorites album"             
+                }
+            },
+            "albumselect": {
                 "data": {
                     "watched_albums": "Albums for which entities will be created"
+                }
+            },
+            "personselect": {
+                "data": {
+                    "watched_persons": "Person for which entities will be created"
                 }
             }
         }

@@ -12,7 +12,11 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .const import (
+    CONF_WATCHED,
     CONF_WATCHED_ALBUMS,
+    CONF_WATCHED_PERSONS,
+    CONF_WATCHED_TYPE_ALBUM,
+    CONF_WATCHED_TYPE_PERSON,
     DOMAIN,
     FAVORITE_IMAGE_ALBUM,
     MANUFACTURER,
@@ -31,27 +35,20 @@ async def async_setup_entry(
     hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Set up the Immich selections."""
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator : ImmichCoordinator = hass.data[DOMAIN][config_entry.entry_id]
     await coordinator.update_albums()
+    await coordinator.update_persons()
 
-    watched_albums = config_entry.options.get(CONF_WATCHED_ALBUMS, [])
-
-    if FAVORITE_IMAGE_ALBUM in watched_albums:
-        async_add_entities([ImmichSelectInterval(coordinator, album_id=FAVORITE_IMAGE_ALBUM, album_name=FAVORITE_IMAGE_ALBUM_NAME)])
-        async_add_entities([ImmichSelectThumbnailsMode(coordinator, album_id=FAVORITE_IMAGE_ALBUM, album_name=FAVORITE_IMAGE_ALBUM_NAME)])
-        async_add_entities([ImmichSelectOrientation(coordinator, album_id=FAVORITE_IMAGE_ALBUM, album_name=FAVORITE_IMAGE_ALBUM_NAME)])
-
-    if RANDOM_IMAGE_ALBUM in watched_albums:
-        async_add_entities([ImmichSelectInterval(coordinator, album_id=RANDOM_IMAGE_ALBUM, album_name=RANDOM_IMAGE_ALBUM_NAME)])
-        async_add_entities([ImmichSelectThumbnailsMode(coordinator, album_id=RANDOM_IMAGE_ALBUM, album_name=RANDOM_IMAGE_ALBUM_NAME)])        
-        async_add_entities([ImmichSelectOrientation(coordinator, album_id=RANDOM_IMAGE_ALBUM, album_name=RANDOM_IMAGE_ALBUM_NAME)])    
-    
-    # Create entities for random image from each watched album
-    for album in coordinator.albums.values():
-        if album["id"] in watched_albums:
-            async_add_entities([ImmichSelectInterval(coordinator, album_id=album["id"], album_name=album["albumName"])])
-            async_add_entities([ImmichSelectThumbnailsMode(coordinator, album_id=album["id"], album_name=album["albumName"])])
-            async_add_entities([ImmichSelectOrientation(coordinator, album_id=album["id"], album_name=album["albumName"])])
+    watched_entries = config_entry.options.get(CONF_WATCHED, [])
+    for entry in watched_entries:
+        select_interval = ImmichSelectInterval(coordinator, entry)
+        select_thumbnails = ImmichSelectThumbnailsMode(coordinator, entry)
+        select_orientation = ImmichSelectOrientation(coordinator, entry)
+        
+        async_add_entities([select_interval])
+        async_add_entities([select_thumbnails])
+        async_add_entities([select_orientation])
+        await coordinator.update_device(entry, select = [select_interval, select_thumbnails, select_orientation])
 
 class ImmichSelectInterval(SelectEntity, RestoreEntity):
     """Selection of image update interval"""
@@ -59,13 +56,12 @@ class ImmichSelectInterval(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:timer-cog"
 
-    def __init__(self, coordinator: ImmichCoordinator, album_id, album_name) -> None:
+    def __init__(self, coordinator: ImmichCoordinator, entry) -> None:
         """Initialize a sensor class."""
         super().__init__()
-        self.album_id = album_id
-        self.album_name = album_name
+        self.entry = entry
         self.coordinator = coordinator
-        self._attr_device_info = coordinator.get_device_info(self.album_id, f"Immich: {self.album_name}")
+        self._attr_device_info = coordinator.get_device_info(entry)
         
         self.entity_description = SelectEntityDescription(
             key="update_interval",
@@ -74,7 +70,7 @@ class ImmichSelectInterval(SelectEntity, RestoreEntity):
             entity_category=EntityCategory.CONFIG,
             options=SETTING_INTERVAL_OPTIONS,
         )
-        self._attr_unique_id = f"{self.album_id}-interval"
+        self._attr_unique_id = f"{coordinator.get_device_id(entry)}-interval"
 
     @property
     def should_poll(self) -> bool:
@@ -84,12 +80,12 @@ class ImmichSelectInterval(SelectEntity, RestoreEntity):
     @property
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
-        return self.coordinator.get_interval(self.album_id)
+        return self.coordinator.get_interval(self.entry)
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        if option is not self.coordinator.get_interval(self.album_id):
-            self.coordinator.set_interval(self.album_id, option)
+        if option is not self.coordinator.get_interval(self.entry):
+            await self.coordinator.set_interval(self.entry, option)
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -97,9 +93,9 @@ class ImmichSelectInterval(SelectEntity, RestoreEntity):
         await super().async_added_to_hass()
         state = await self.async_get_last_state()
         if not state or state.state not in SETTING_INTERVAL_OPTIONS:
-            self.coordinator.set_interval(self.album_id, SETTING_INTERVAL_DEFAULT_OPTION)
+            await self.coordinator.set_interval(self.entry, SETTING_INTERVAL_DEFAULT_OPTION)
         else:
-            self.coordinator.set_interval(self.album_id, state.state)
+            await self.coordinator.set_interval(self.entry, state.state)
         self.async_write_ha_state()
 
 class ImmichSelectThumbnailsMode(SelectEntity, RestoreEntity):
@@ -108,13 +104,12 @@ class ImmichSelectThumbnailsMode(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:file-image"
 
-    def __init__(self, coordinator: ImmichCoordinator, album_id, album_name) -> None:
+    def __init__(self, coordinator: ImmichCoordinator, entry) -> None:
         """Initialize a sensor class."""
         super().__init__()
-        self.album_id = album_id
-        self.album_name = album_name
+        self.entry = entry
         self.coordinator = coordinator
-        self._attr_device_info = coordinator.get_device_info(self.album_id, f"Immich: {self.album_name}")
+        self._attr_device_info = coordinator.get_device_info(entry)
         
         self.entity_description = SelectEntityDescription(
             key="thumbnail_mode",
@@ -123,7 +118,7 @@ class ImmichSelectThumbnailsMode(SelectEntity, RestoreEntity):
             entity_category=EntityCategory.CONFIG,
             options=SETTING_THUMBNAILS_MODE_OPTIONS,
         )
-        self._attr_unique_id = f"{self.album_id}-thumbnailmode"
+        self._attr_unique_id = f"{coordinator.get_device_id(entry)}-thumbnailmode"
 
     @property
     def should_poll(self) -> bool:
@@ -133,12 +128,12 @@ class ImmichSelectThumbnailsMode(SelectEntity, RestoreEntity):
     @property
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
-        return self.coordinator.get_thumbnail_mode(self.album_id)
+        return self.coordinator.get_thumbnail_mode(self.entry)
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        if option is not self.coordinator.get_thumbnail_mode(self.album_id):
-            self.coordinator.set_thumbnail_mode(self.album_id, option)
+        if option is not self.coordinator.get_thumbnail_mode(self.entry):
+            await self.coordinator.set_thumbnail_mode(self.entry, option)
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -146,9 +141,9 @@ class ImmichSelectThumbnailsMode(SelectEntity, RestoreEntity):
         await super().async_added_to_hass()
         state = await self.async_get_last_state()
         if not state or state.state not in SETTING_THUMBNAILS_MODE_OPTIONS:
-            self.coordinator.set_thumbnail_mode(self.album_id, SETTING_THUMBNAILS_MODE_DEFAULT)
+            await self.coordinator.set_thumbnail_mode(self.entry, SETTING_THUMBNAILS_MODE_DEFAULT)
         else:
-            self.coordinator.set_thumbnail_mode(self.album_id, state.state)
+            await self.coordinator.set_thumbnail_mode(self.entry, state.state)
         self.async_write_ha_state()
 
 class ImmichSelectOrientation(SelectEntity, RestoreEntity):
@@ -157,22 +152,21 @@ class ImmichSelectOrientation(SelectEntity, RestoreEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:directions"
 
-    def __init__(self, coordinator: ImmichCoordinator, album_id, album_name) -> None:
+    def __init__(self, coordinator: ImmichCoordinator, entry) -> None:
         """Initialize a sensor class."""
         super().__init__()
-        self.album_id = album_id
-        self.album_name = album_name
+        self.entry = entry
         self.coordinator = coordinator
-        self._attr_device_info = coordinator.get_device_info(self.album_id, f"Immich: {self.album_name}")
+        self._attr_device_info = coordinator.get_device_info(entry)
         
         self.entity_description = SelectEntityDescription(
-            key="ordination",
+            key="orientation",
             name="Orientation",
             icon=self._attr_icon,
             entity_category=EntityCategory.CONFIG,
             options=SETTING_ORIENTATION_OPTIONS,
         )
-        self._attr_unique_id = f"{self.album_id}-orientation"
+        self._attr_unique_id = f"{coordinator.get_device_id(entry)}-orientation"
 
     @property
     def should_poll(self) -> bool:
@@ -182,12 +176,12 @@ class ImmichSelectOrientation(SelectEntity, RestoreEntity):
     @property
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
-        return self.coordinator.get_orientation(self.album_id)
+        return self.coordinator.get_orientation(self.entry)
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
-        if option is not self.coordinator.get_orientation(self.album_id):
-            self.coordinator.set_orientation(self.album_id, option)
+        if option is not self.coordinator.get_orientation(self.entry):
+            await self.coordinator.set_orientation(self.entry, option)
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
@@ -195,7 +189,7 @@ class ImmichSelectOrientation(SelectEntity, RestoreEntity):
         await super().async_added_to_hass()
         state = await self.async_get_last_state()
         if not state or state.state not in SETTING_ORIENTATION_OPTIONS:
-            self.coordinator.set_orientation(self.album_id, SETTING_ORIENTATION_DEFAULT)
+            await self.coordinator.set_orientation(self.entry, SETTING_ORIENTATION_DEFAULT)
         else:
-            self.coordinator.set_orientation(self.album_id, state.state)
+            await self.coordinator.set_orientation(self.entry, state.state)
         self.async_write_ha_state()

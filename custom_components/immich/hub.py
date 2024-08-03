@@ -1,4 +1,5 @@
 """Hub for Immich integration."""
+
 from __future__ import annotations
 
 import logging
@@ -67,6 +68,28 @@ class ImmichHub:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception
 
+    async def get_asset_stats(self) -> dict | None:
+        """Get asset stats."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = urljoin(self.host, f"/api/assets/statistics")
+                headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
+
+                async with session.get(url=url, headers=headers) as response:
+                    if response.status != 200:
+                        raw_result = await response.text()
+                        _LOGGER.error(
+                            "Error from API: body=%s", raw_result, exc_info=True
+                        )
+                        raise ApiError()
+
+                    asset_stats: dict = await response.json()
+
+                    return asset_stats
+        except aiohttp.ClientError as exception:
+            _LOGGER.error("Error connecting to the API: %s", exception, exc_info=True)
+            raise CannotConnect from exception
+
     async def get_asset_info(self, asset_id: str) -> dict | None:
         """Get asset info."""
         try:
@@ -109,17 +132,20 @@ class ImmichHub:
         except aiohttp.ClientError as exception:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception
-        
+
     async def download_thumbnail(self, asset_id: str) -> bytes | None:
         """Download the thumbnail."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/assets/thumbnail/{asset_id}?format=JPEG")
+                url = urljoin(
+                    self.host, f"/api/assets/{asset_id}/thumbnail?size=preview"
+                )
                 headers = {_HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
                     if response.status != 200:
-                        _LOGGER.error("Error from API: status=%d", response.status)
+                        _LOGGER.error(
+                            "Error from API: status=%d", response.status)
                         return None
 
                     if response.content_type not in _ALLOWED_MIME_TYPES:
@@ -147,7 +173,7 @@ class ImmichHub:
                         raise ApiError()
 
                     data = await response.json()
-                    persons: list[dict] = data.get('people')
+                    persons: list[dict] = data.get("people")
 
                     filtered_persons: list[dict] = [
                         person for person in persons if person["name"] != ""
@@ -204,9 +230,11 @@ class ImmichHub:
             async with aiohttp.ClientSession() as session:
                 url = urljoin(self.host, "/api/search/metadata")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
-                data = {"isFavorite": "true"}
+                data = {"isFavorite": "true", "withExif": "true"}
 
-                async with session.post(url=url, headers=headers, data=data) as response:
+                async with session.post(
+                    url=url, headers=headers, data=data
+                ) as response:
                     if response.status != 200:
                         raw_result = await response.text()
                         _LOGGER.error("Error from API: body=%s", raw_result)
@@ -269,22 +297,27 @@ class ImmichHub:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception
 
-    async def get_random_image(self) -> str:
-        """Get random image."""
+    async def get_random_images(self, count=1) -> list[dict]:
+        """Get random images."""
         try:
             async with aiohttp.ClientSession() as session:
-                url = urljoin(self.host, f"/api/assets/random")
+                url = urljoin(self.host, f"/api/assets/random?count={count}")
                 headers = {"Accept": "application/json", _HEADER_API_KEY: self.api_key}
 
                 async with session.get(url=url, headers=headers) as response:
                     if response.status != 200:
                         raw_result = await response.text()
-                        _LOGGER.error("Error from API: body=%s", raw_result)
+                        _LOGGER.error(
+                            "Error from API: body=%s", raw_result)
                         raise ApiError()
 
-                    asset_info: list[dict] = await response.json()
+                    assets: list[dict] = await response.json()
+                    filtered_assets: list[dict] = [
+                        asset for asset in assets if asset["type"] == "IMAGE"
+                    ]
+                    
 
-                    return asset_info[0].get('id')
+                    return filtered_assets
         except aiohttp.ClientError as exception:
             _LOGGER.error("Error connecting to the API: %s", exception)
             raise CannotConnect from exception
